@@ -4,7 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>服务器内部接口可用✔</title>
+    <link rel="icon" href="logo.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="logo.ico" type="image/x-icon">
+    <title>SMS短信压力测试系统</title>
     <style>
         body {
     font-family: 'Arial', sans-serif;
@@ -56,7 +58,7 @@ button {
     border: 2px solid #00ff9d;
     border-radius: 5px;
     cursor: pointer;
-    transition: background-color 0.3s;
+    transition: all 0.3s;
     margin-top: 10px;
 }
 
@@ -64,6 +66,31 @@ button:hover {
     color: #05080c;
     background-color: #00ff9d;
     border: 2px solid #00ff9d;
+}
+
+/* 开始发送按钮 - 绿色 */
+.btn-start {
+    color: #00ff9d;
+    border-color: #00ff9d;
+    background-color: #05080c;
+}
+
+.btn-start:hover {
+    color: #05080c;
+    background-color: #00ff9d;
+}
+
+/* 停止发送按钮 - 红色 */
+.btn-stop {
+    color: #ff4757;
+    border-color: #ff4757;
+    background-color: #05080c;
+    display: none;
+}
+
+.btn-stop:hover {
+    color: #05080c;
+    background-color: #ff4757;
 }
 
 #instruction {
@@ -230,8 +257,8 @@ button:hover {
         <label for="phoneNumber"></label>
         <input type="text" id="phoneNumber" name="phoneNumber" placeholder="请输入手机号" required><br><br>
 
-        <button type="button" id="sendBtn" onclick="sendRequests()">开始发送<br /></button>
-        <button type="button" id="stopBtn" onclick="stopRequests()" style="display:none;">停止发送<br /></button>
+        <button type="button" id="sendBtn" class="btn-start" onclick="sendRequests()">📣 开始发送</button>
+        <button type="button" id="stopBtn" class="btn-stop" onclick="stopRequests()">⏹️ 停止发送</button>
     </form>
     
     <div class="log" id="smsLogArea">
@@ -3438,6 +3465,10 @@ button:hover {
         let globalSuccessCount = 0;
         let globalFailureCount = 0;
         
+        // ⭐ 连续失败计数器（用于自动停止）
+        let consecutiveFailures = 0;
+        const MAX_CONSECUTIVE_FAILURES = 20; // 连续失败20次后自动停止
+        
         // 并发控制配置（防止请求堵塞）
         const MAX_CONCURRENT = 30; // 最大并发数（已优化：10→30）⚡
         const REQUEST_DELAY = 10; // 每批请求间隔(ms)（已优化：100ms→10ms）⚡
@@ -3515,9 +3546,9 @@ button:hover {
         // 停止发送函数
         function stopRequests() {
             isRunning = false;
-            document.getElementById('sendBtn').style.display = 'block';
+            document.getElementById('sendBtn').style.display = 'inline-block';
             document.getElementById('stopBtn').style.display = 'none';
-            addLog('已停止发送', 'error');
+            addLog('⏹️ 已停止发送', 'error');
             console.log('⏹️ 用户主动停止');
         }
         
@@ -3552,6 +3583,7 @@ button:hover {
     // 重置全局计数器
     globalSuccessCount = 0;
     globalFailureCount = 0;
+    consecutiveFailures = 0; // 重置连续失败计数器
 
     let successCount = 0;
     let failureCount = 0;
@@ -3567,9 +3599,9 @@ button:hover {
     console.log(`⚙️  并发控制: 最大${MAX_CONCURRENT}个并发`);
     console.log('─'.repeat(60));
     
-    // 按钮状态切换
+    // 按钮状态切换（绿色开始 → 红色停止）
     document.getElementById('sendBtn').style.display = 'none';
-    document.getElementById('stopBtn').style.display = 'block';
+    document.getElementById('stopBtn').style.display = 'inline-block';
     
     addLog(`开始向 ${phoneNumber} 发送短信...`, 'system');
 
@@ -3651,16 +3683,63 @@ button:hover {
                     
                     const duration = Date.now() - startTime;
                     
-                    if (response.ok) {
+                    // ⭐ 验证响应是否真正成功
+                    const contentType = response.headers.get('content-type') || '';
+                    const isHtmlResponse = contentType.includes('text/html');
+                    
+                    // 判断失败原因
+                    let failReason = '';
+                    let isRealSuccess = response.ok;
+                    
+                    // 只有 200 返回 HTML 才检测是否是代理问题
+                    if (response.ok && isHtmlResponse) {
+                        try {
+                            const text = await response.clone().text();
+                            if (text.includes('Safety box') || (text.includes('<!DOCTYPE html>') && text.includes('服务器内部接口'))) {
+                                isRealSuccess = false;
+                                failReason = '代理异常';
+                                console.warn(`⚠️ 代理返回了HTML页面而非API响应: ${actualUrl}`);
+                            }
+                        } catch (e) {}
+                    } else if (!response.ok) {
+                        // 非200状态码，根据状态码判断原因
+                        if (status === 404) {
+                            failReason = '接口不存在';
+                        } else if (status === 403) {
+                            failReason = '接口拒绝';
+                        } else if (status === 500 || status === 502 || status === 503) {
+                            failReason = '服务器错误';
+                        } else if (status === 429) {
+                            failReason = '请求过快';
+                        } else {
+                            failReason = `状态码${status}`;
+                        }
+                    }
+                    
+                    if (isRealSuccess) {
                         successCount++;
                         globalSuccessCount++;
+                        consecutiveFailures = 0;
                         console.log(`✅ [${status}] ${apiRequest.method || 'POST'} 成功 (${duration}ms): ${actualUrl}`);
-                        addLog(`成功 #${globalSuccessCount} - 状态码: ${status} (${duration}ms)`, 'success');
+                        addLog(`✅ 成功 #${globalSuccessCount} (${duration}ms)`, 'success');
                     } else {
                         failureCount++;
                         globalFailureCount++;
-                        console.warn(`⚠️  [${status}] ${apiRequest.method || 'POST'} 失败 (${duration}ms): ${actualUrl}`);
-                        // 不显示失败日志
+                        consecutiveFailures++;
+                        console.warn(`⚠️  [${status}] ${apiRequest.method || 'POST'} 失败(${failReason}) (${duration}ms): ${actualUrl}`);
+                        
+                        // 显示部分失败日志（前5个 + 每20个显示一次）
+                        if (globalFailureCount <= 5 || globalFailureCount % 20 === 0) {
+                            addLog(`❌ ${failReason} (${duration}ms)`, 'error');
+                        }
+                        
+                        // ⭐ 连续失败过多，自动停止
+                        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && isRunning) {
+                            isRunning = false;
+                            addLog(`⚠️ 连续失败${consecutiveFailures}次，已自动停止`, 'error');
+                            addLog(`💡 可能是代理额度超限，请明天再试`, 'info');
+                            console.error(`🛑 连续失败${consecutiveFailures}次，自动停止发送`);
+                        }
                     }
                     
                     // 每10个成功请求显示一次进度
@@ -3718,19 +3797,35 @@ button:hover {
     // 添加完成日志（在修改 isRunning 之前）
     const wasRunning = isRunning;
     
-    // 恢复按钮状态
+    // 恢复按钮状态（红色停止 → 绿色开始）
     isRunning = false;
-    document.getElementById('sendBtn').style.display = 'block';
+    document.getElementById('sendBtn').style.display = 'inline-block';
     document.getElementById('stopBtn').style.display = 'none';
     
-    // 添加最终统计日志（只显示成功）
+    // 添加最终统计日志（显示完整统计）
     addLog('─'.repeat(30), 'system');
     if (wasRunning) {
-        addLog(`✅ 发送完成！`, 'system');
+        addLog(`📊 发送完成！`, 'system');
     } else {
         addLog(`⏹️ 已停止发送`, 'system');
     }
-    addLog(`🎉 成功: ${successCount} 个 | 耗时: ${totalTime}秒`, 'success');
+    
+    // 计算成功率
+    const successRate = totalRequests > 0 ? ((successCount / totalRequests) * 100).toFixed(1) : 0;
+    
+    // 显示完整统计
+    if (successCount > 0) {
+        addLog(`✅ 成功: ${successCount} 个 (${successRate}%)`, 'success');
+    }
+    if (failureCount > 0) {
+        addLog(`❌ 失败: ${failureCount} 个`, 'error');
+    }
+    addLog(`⏱️ 耗时: ${totalTime}秒`, 'info');
+    
+    // 如果大量失败，提示代理问题
+    if (failureCount > successCount * 2) {
+        addLog(`⚠️ 大量请求失败，请检查代理配置`, 'error');
+    }
     addLog('─'.repeat(30), 'system');
 }
 

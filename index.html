@@ -3376,12 +3376,11 @@ button:hover {
         const USE_CORS_PROXY = true; // 设置为true启用CORS代理
         
         // 多个代理备选列表（自动切换）
-        // ⭐ 优先使用自定义域名代理，其次备用代理
+        // ⭐ 优先使用自定义域名代理
         const CORS_PROXIES = [
-	    'https://proxy.zk99999.dpdns.org/?url=',         // ✅ 自定义域名代理（主力）
-	    '/functions/proxy?url=',                          // ✅ Cloudflare Pages Functions（主力）
-	    'http://localhost:8080/?url=',                    // 本地代理（备用）
-	    'https://api.allorigins.win/raw?url=',           // 在线代理（备用）
+	    'https://proxy.zk99999.dpdns.org/?url=',                  // ✅ 自定义域名代理（主力）
+	    'https://sms-cors-proxy.1334132303.workers.dev/?url=',    // Workers 代理（备用）
+	    'https://api.allorigins.win/raw?url=',                     // 在线代理（备用）
         ];
         
         let currentProxyIndex = 0; // 当前使用的代理索引

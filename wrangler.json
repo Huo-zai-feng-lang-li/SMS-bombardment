@@ -1,5 +1,5 @@
 {
-  "name": "sms-bombing-tool",
+  "name": "sms-cors-proxy",
   "compatibility_date": "2024-01-01",
   "assets": {
     "directory": "."

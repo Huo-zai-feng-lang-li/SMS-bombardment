@@ -12,7 +12,7 @@ export async function onRequest(context) {
 
   // 1. 静态资源和本站关键路径绕过（让 Pages 原生处理）
   const isStaticAsset =
-    pathname === "/" ||
+    pathname === "/" && !url.searchParams.has("url") ||
     pathname === "/index.html" ||
     pathname === "/logo.ico" ||
     pathname === "/logo.gif" ||

@@ -3472,9 +3472,8 @@ button:hover {
         let consecutiveFailures = 0;
         const MAX_CONSECUTIVE_FAILURES = 20; // 连续失败20次后自动停止
         
-        // 并发控制配置（防止请求堵塞）
-        const MAX_CONCURRENT = 30; // 最大并发数（已优化：10→30）⚡
-        const REQUEST_DELAY = 10; // 每批请求间隔(ms)（已优化：100ms→10ms）⚡
+        // 请求节流配置：每秒只发送 1 个请求，避免突发并发
+        const REQUEST_DELAY = 1000; // 每个请求之间间隔(ms)
         
         // ⭐ 请求去重缓存（避免短时间内重复请求相同URL）
         const requestCache = new Map();
@@ -3489,26 +3488,23 @@ button:hover {
             return new Promise(resolve => setTimeout(resolve, ms));
         }
         
-        // 并发控制函数
-        async function runWithConcurrency(tasks, maxConcurrent) {
+        // 节流执行函数：按固定间隔逐个执行请求
+        async function runWithRateLimit(tasks, delayMs) {
             const results = [];
-            const executing = [];
             
-            for (const task of tasks) {
-                const promise = task().then(result => {
-                    executing.splice(executing.indexOf(promise), 1);
-                    return result;
-                });
-                
-                results.push(promise);
-                executing.push(promise);
-                
-                if (executing.length >= maxConcurrent) {
-                    await Promise.race(executing);
+            for (let index = 0; index < tasks.length; index++) {
+                if (!isRunning) {
+                    break;
+                }
+
+                results.push(await tasks[index]());
+
+                if (isRunning && index < tasks.length - 1) {
+                    await sleep(delayMs);
                 }
             }
             
-            return Promise.all(results);
+            return results;
         }
 
         function addLog(message, type = 'info') {
@@ -3599,7 +3595,7 @@ button:hover {
     console.log('🚀 开始发送请求...');
     console.log(`📱 手机号: ${phoneNumber}`);
     console.log(`🔢 攻击次数: ${times}`);
-    console.log(`⚙️  并发控制: 最大${MAX_CONCURRENT}个并发`);
+    console.log(`⚙️  请求频率: 每秒1个请求`);
     console.log('─'.repeat(60));
     
     // 按钮状态切换（绿色开始 → 红色停止）
@@ -3767,13 +3763,13 @@ button:hover {
         }
     }
 
-    // 使用并发控制执行所有请求
+    // 使用节流控制执行所有请求
     console.log(`\n📦 总共创建 ${totalRequests} 个请求任务`);
-    console.log(`⚙️  使用 ${MAX_CONCURRENT} 个并发执行\n`);
+    console.log(`⚙️  使用每秒1个请求的速率执行\n`);
     
     const startTime = Date.now();
     
-    await runWithConcurrency(requestTasks, MAX_CONCURRENT);
+    await runWithRateLimit(requestTasks, REQUEST_DELAY);
     
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
     
